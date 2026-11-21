@@ -11,6 +11,7 @@ export type ActiveScreen =
   | 'products'
   | 'transactions'
   | 'suppliers'
+  | 'responses'
   | 'reports'
   | 'insights';
 
@@ -140,5 +141,27 @@ export interface ChatMessage {
   content: string;
   timestamp: string;
   isGuidanceOnly?: boolean;
+  isError?: boolean;
   proposedAction?: ChatProposedAction;
 }
+
+export type CustomerInquiryStatus = 'Open' | 'Replied' | 'Resolved';
+
+export type CustomerInquiryChannel = 'Email' | 'Web Chat' | 'WhatsApp';
+
+export interface CustomerInquiry {
+  id: string;
+  customerName: string;
+  customerEmail: string;
+  channel: CustomerInquiryChannel;
+  subject: string;
+  message: string;
+  productId?: string;
+  orderRef?: string;
+  status: CustomerInquiryStatus;
+  createdAt: string;
+  replyDraft?: string;
+  sentReply?: string;
+  repliedAt?: string;
+}
+

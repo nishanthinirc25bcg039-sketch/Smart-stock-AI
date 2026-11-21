@@ -8,6 +8,7 @@ import {
   LogOut,
   Menu,
   MessageSquare,
+  MessageSquareText,
   Package,
   PackageCheck,
   RotateCcw,
@@ -17,7 +18,14 @@ import {
   X,
 } from 'lucide-react';
 import { DEMO_IMAGES } from '../data/seedData';
-import { ActiveScreen, DateRangeDays, Product, PurchaseOrder, UserSession } from '../types/inventory';
+import {
+  ActiveScreen,
+  CustomerInquiry,
+  DateRangeDays,
+  Product,
+  PurchaseOrder,
+  UserSession,
+} from '../types/inventory';
 import { getStockStatus } from '../utils/inventoryEngine';
 import { SafeImage } from './SafeImage';
 
@@ -33,6 +41,7 @@ interface AppShellProps {
   onDateRangeChange: (d: DateRangeDays) => void;
   products: Product[];
   purchaseOrders: PurchaseOrder[];
+  customerInquiries: CustomerInquiry[];
   onOpenChat: () => void;
   children: ReactNode;
 }
@@ -42,6 +51,7 @@ const NAV_ITEMS: { id: ActiveScreen; label: string; icon: typeof LayoutDashboard
   { id: 'products', label: 'Products', icon: Package },
   { id: 'transactions', label: 'Transactions', icon: ArrowLeftRight },
   { id: 'suppliers', label: 'Suppliers', icon: Truck },
+  { id: 'responses', label: 'Customer Response', icon: MessageSquareText },
   { id: 'reports', label: 'Reports', icon: BarChart3 },
   { id: 'insights', label: 'AI Insights', icon: Sparkles },
 ];
@@ -58,6 +68,7 @@ export function AppShell({
   onDateRangeChange,
   products,
   purchaseOrders,
+  customerInquiries,
   onOpenChat,
   children,
 }: AppShellProps) {
@@ -68,6 +79,7 @@ export function AppShell({
   const lowStockAlerts = products.filter(
     (p) => getStockStatus(p.quantity, p.reorderPoint) !== 'in_stock'
   );
+  const openInquiriesCount = customerInquiries.filter((i) => i.status === 'Open').length;
   const openDeliveries = purchaseOrders.filter((po) => po.status !== 'Received');
   const alertCount = lowStockAlerts.length + openDeliveries.length;
 
@@ -103,6 +115,11 @@ export function AppShell({
             {item.id === 'products' && lowStockAlerts.length > 0 && (
               <span className="font-mono tabular-nums text-xs text-amber-700 font-semibold">
                 {lowStockAlerts.length}
+              </span>
+            )}
+            {item.id === 'responses' && openInquiriesCount > 0 && (
+              <span className="font-mono tabular-nums text-xs text-orange-700 font-semibold">
+                {openInquiriesCount}
               </span>
             )}
           </button>

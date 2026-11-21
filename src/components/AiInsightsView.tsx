@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import {
+  AlertCircle,
   MessageSquare,
   Minus,
   RefreshCw,
@@ -8,8 +9,15 @@ import {
   TrendingDown,
   TrendingUp,
 } from 'lucide-react';
-import { Product, PurchaseOrder, StockTransaction, Supplier } from '../types/inventory';
+import {
+  AiDailySummary,
+  Product,
+  PurchaseOrder,
+  StockTransaction,
+  Supplier,
+} from '../types/inventory';
 import { generateAiRecommendations, generateDailySummary } from '../utils/aiEngine';
+import { buildInventoryContextPayload } from '../utils/customerResponseEngine';
 import { formatCurrency } from '../utils/inventoryEngine';
 
 interface AiInsightsViewProps {
@@ -29,13 +37,16 @@ export function AiInsightsView({
   onCreatePurchaseOrder,
   onOpenChat,
 }: AiInsightsViewProps) {
-  const [refreshCount, setRefreshCount] = useState(0);
+  const [geminiSummary, setGeminiSummary] = useState<AiDailySummary | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [geminiError, setGeminiError] = useState('');
 
-  const summary = useMemo(() => {
-    void refreshCount;
-    return generateDailySummary(products, transactions, purchaseOrders, suppliers);
-  }, [products, transactions, purchaseOrders, suppliers, refreshCount]);
+  const baselineSummary = useMemo(
+    () => generateDailySummary(products, transactions, purchaseOrders, suppliers),
+    [products, transactions, purchaseOrders, suppliers]
+  );
+
+  const summary = geminiSummary ?? baselineSummary;
 
   const recommendations = useMemo(
     () => generateAiRecommendations(products, transactions, suppliers),
@@ -46,12 +57,49 @@ export function AiInsightsView({
   const fallingTrends = recommendations.filter((r) => r.trendDirection === 'falling');
   const reorderCandidates = recommendations.filter((r) => r.suggestedReorderQty > 0);
 
-  const handleRefresh = () => {
+  const handleRefresh = async () => {
     setIsRefreshing(true);
-    setTimeout(() => {
-      setRefreshCount((c) => c + 1);
+    setGeminiError('');
+    try {
+      const inventoryContext = buildInventoryContextPayload(
+        products,
+        suppliers,
+        transactions,
+        purchaseOrders
+      );
+      const res = await fetch('/api/gemini/insights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ inventoryContext }),
+      });
+      const data = (await res.json()) as {
+        headline?: string;
+        highlights?: string[];
+        recommendedActions?: string[];
+        model?: string;
+        error?: string;
+      };
+      if (!res.ok || !data.headline) {
+        setGeminiError(
+          data.error || 'Unable to refresh insights with Gemini. Verify GEMINI_API_KEY in Settings > Secrets.'
+        );
+        return;
+      }
+      setGeminiSummary({
+        headline: data.headline,
+        generatedAtLabel: `Gemini AI (${data.model ?? 'gemini-4-hydrogen'}) · Updated ${new Date().toLocaleTimeString(
+          'en-US',
+          { hour: 'numeric', minute: '2-digit' }
+        )}`,
+        highlights: data.highlights ?? [],
+        recommendedActions: data.recommendedActions ?? [],
+        isSampleData: false,
+      });
+    } catch {
+      setGeminiError('Network error reaching /api/gemini/insights.');
+    } finally {
       setIsRefreshing(false);
-    }, 220);
+    }
   };
 
   return (
@@ -61,25 +109,29 @@ export function AiInsightsView({
         <div>
           <div className="flex items-center gap-2 text-xs font-medium text-orange-600">
             <Sparkles className="w-3.5 h-3.5" aria-hidden="true" />
-            <span>AI Demand & Reorder Analysis · Based on sample data</span>
+            <span>
+              AI Demand & Reorder Analysis ·{' '}
+              {geminiSummary ? 'Gemini Live Summary' : 'Based on sample data'}
+            </span>
           </div>
           <h1 className="font-display text-2xl font-bold text-slate-900 tracking-tight mt-1">
             AI Stock Insights
           </h1>
           <p className="text-sm text-slate-600 mt-0.5">
-            Simulated trend diagnostics computed from your displayed demo catalog and transaction
-            velocity.
+            Trend diagnostics computed from your displayed catalog and transaction velocity, with
+            live Gemini executive refresh.
           </p>
         </div>
 
         <div className="flex items-center gap-2.5 shrink-0">
           <button
             type="button"
-            onClick={handleRefresh}
-            className="px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg transition-colors inline-flex items-center gap-2 whitespace-nowrap"
+            disabled={isRefreshing}
+            onClick={() => void handleRefresh()}
+            className="px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-200 hover:bg-slate-50 disabled:opacity-60 rounded-lg transition-colors inline-flex items-center gap-2 whitespace-nowrap"
           >
             <RefreshCw className={`w-4 h-4 ${isRefreshing ? 'animate-spin' : ''}`} aria-hidden="true" />
-            <span>Refresh Summary</span>
+            <span>{isRefreshing ? 'Refreshing...' : 'Refresh with Gemini'}</span>
           </button>
           <button
             type="button"
@@ -91,6 +143,16 @@ export function AiInsightsView({
           </button>
         </div>
       </div>
+
+      {geminiError && (
+        <div
+          role="alert"
+          className="p-3.5 rounded-xl bg-red-50 border border-red-200 flex items-start gap-2.5 text-sm text-red-800"
+        >
+          <AlertCircle className="w-4 h-4 text-red-600 shrink-0 mt-0.5" aria-hidden="true" />
+          <span>{geminiError}</span>
+        </div>
+      )}
 
       {/* Generated Inventory Summary Card */}
       <section
@@ -105,7 +167,7 @@ export function AiInsightsView({
             </h2>
           </div>
           <span className="text-xs font-medium text-slate-500 shrink-0">
-            Illustrative · Based on sample data
+            {summary.isSampleData ? 'Illustrative · Based on sample data' : 'Generated by Gemini AI'}
           </span>
         </div>
 

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { AdminLogin } from './components/AdminLogin';
 import { AiInsightsView } from './components/AiInsightsView';
 import { AppShell } from './components/AppShell';
+import { CustomerResponseView } from './components/CustomerResponseView';
 import { InventoryChatbot } from './components/InventoryChatbot';
 import { OverviewDashboard } from './components/OverviewDashboard';
 import { ProductCatalog } from './components/ProductCatalog';
@@ -12,6 +13,7 @@ import { SuppliersView } from './components/SuppliersView';
 import { ToastContainer } from './components/ToastContainer';
 import { TransactionsView } from './components/TransactionsView';
 import {
+  createSeedCustomerInquiries,
   createSeedProducts,
   createSeedPurchaseOrders,
   createSeedSuppliers,
@@ -21,6 +23,8 @@ import {
 import {
   ActiveScreen,
   ChatProposedAction,
+  CustomerInquiry,
+  CustomerInquiryChannel,
   DateRangeDays,
   Product,
   PurchaseOrder,
@@ -39,6 +43,7 @@ interface PersistedState {
   suppliers: Supplier[];
   transactions: StockTransaction[];
   purchaseOrders: PurchaseOrder[];
+  customerInquiries: CustomerInquiry[];
 }
 
 function loadInitialState(): PersistedState {
@@ -57,6 +62,9 @@ function loadInitialState(): PersistedState {
           suppliers: parsed.suppliers,
           transactions: parsed.transactions,
           purchaseOrders: parsed.purchaseOrders,
+          customerInquiries: Array.isArray(parsed.customerInquiries)
+            ? parsed.customerInquiries
+            : createSeedCustomerInquiries(),
         };
       }
     }
@@ -69,6 +77,7 @@ function loadInitialState(): PersistedState {
     suppliers: createSeedSuppliers(),
     transactions: createSeedTransactions(),
     purchaseOrders: createSeedPurchaseOrders(),
+    customerInquiries: createSeedCustomerInquiries(),
   };
 }
 
@@ -162,9 +171,10 @@ export default function App() {
       suppliers: createSeedSuppliers(),
       transactions: createSeedTransactions(),
       purchaseOrders: createSeedPurchaseOrders(),
+      customerInquiries: createSeedCustomerInquiries(),
     };
     setState(fresh);
-    addToast('info', 'Sample data restored', 'Products, suppliers, and transactions reset to defaults.');
+    addToast('info', 'Sample data restored', 'Products, suppliers, transactions, and inquiries reset to defaults.');
   };
 
   // Product Handlers
@@ -331,6 +341,57 @@ export default function App() {
     }
   };
 
+  // Customer Inquiry Handlers
+  const handleCreateInquiry = (data: {
+    customerName: string;
+    customerEmail: string;
+    channel: CustomerInquiryChannel;
+    subject: string;
+    message: string;
+    productId?: string;
+    orderRef?: string;
+  }) => {
+    const next: CustomerInquiry = {
+      id: `inq-${Date.now()}`,
+      ...data,
+      status: 'Open',
+      createdAt: formatIsoDateOffset(0),
+    };
+    setState((prev) => ({
+      ...prev,
+      customerInquiries: [next, ...prev.customerInquiries],
+    }));
+    addToast('success', 'Inquiry logged', `Added inquiry from ${data.customerName}.`);
+  };
+
+  const handleSendInquiryReply = (inquiryId: string, replyText: string) => {
+    const today = formatIsoDateOffset(0);
+    setState((prev) => ({
+      ...prev,
+      customerInquiries: prev.customerInquiries.map((inq) =>
+        inq.id === inquiryId
+          ? {
+              ...inq,
+              status: 'Replied',
+              sentReply: replyText,
+              repliedAt: today,
+            }
+          : inq
+      ),
+    }));
+    addToast('success', 'Customer reply recorded', 'Inquiry marked as Replied.');
+  };
+
+  const handleResolveInquiry = (inquiryId: string) => {
+    setState((prev) => ({
+      ...prev,
+      customerInquiries: prev.customerInquiries.map((inq) =>
+        inq.id === inquiryId ? { ...inq, status: 'Resolved' } : inq
+      ),
+    }));
+    addToast('info', 'Inquiry resolved', 'Moved customer inquiry to Resolved.');
+  };
+
   if (!session) {
     return (
       <>
@@ -354,6 +415,7 @@ export default function App() {
         onDateRangeChange={setDateRange}
         products={state.products}
         purchaseOrders={state.purchaseOrders}
+        customerInquiries={state.customerInquiries}
         onOpenChat={() => setChatOpen(true)}
       >
         {activeScreen === 'overview' && (
@@ -416,6 +478,19 @@ export default function App() {
             transactions={state.transactions}
             onSaveSupplier={handleSaveSupplier}
             onDeleteSupplier={handleDeleteSupplier}
+          />
+        )}
+
+        {activeScreen === 'responses' && (
+          <CustomerResponseView
+            inquiries={state.customerInquiries}
+            products={state.products}
+            suppliers={state.suppliers}
+            transactions={state.transactions}
+            purchaseOrders={state.purchaseOrders}
+            onCreateInquiry={handleCreateInquiry}
+            onSendReply={handleSendInquiryReply}
+            onResolveInquiry={handleResolveInquiry}
           />
         )}
 

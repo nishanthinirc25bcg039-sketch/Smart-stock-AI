@@ -1,4 +1,10 @@
-import { Product, PurchaseOrder, StockTransaction, Supplier } from '../types/inventory';
+import {
+  CustomerInquiry,
+  Product,
+  PurchaseOrder,
+  StockTransaction,
+  Supplier,
+} from '../types/inventory';
 
 export function formatIsoDateOffset(daysOffset: number, baseDate = new Date()): string {
   const d = new Date(baseDate);
@@ -544,3 +550,64 @@ export function createSeedPurchaseOrders(baseDate = new Date()): PurchaseOrder[]
     },
   ];
 }
+
+export function createSeedCustomerInquiries(baseDate = new Date()): CustomerInquiry[] {
+  const d = (offset: number) => formatIsoDateOffset(offset, baseDate);
+  return [
+    {
+      id: 'inq-1',
+      customerName: 'Nadia Patel',
+      customerEmail: 'nadia.patel@example.com',
+      channel: 'Web Chat',
+      subject: 'Restock timing for Kraft Mailer Boxes?',
+      message:
+        'Hi! We pack 40 gift sets this Friday and noticed the Kraft Corrugated Mailer Box (Medium) shows out of stock. Do you have an inbound shipment arriving soon?',
+      productId: 'prod-5',
+      orderRef: 'ORD-5920',
+      status: 'Open',
+      createdAt: d(0),
+    },
+    {
+      id: 'inq-2',
+      customerName: 'Owen Gallagher',
+      customerEmail: 'owen.g@cafe-example.com',
+      channel: 'Email',
+      subject: 'Wholesale availability on Uji Ceremonial Matcha Tins',
+      message:
+        'Hello Northwind team, can we order 15 tins of Uji Ceremonial Matcha (30g) for our weekend menu launch? Let me know current stock and unit pricing.',
+      productId: 'prod-3',
+      orderRef: 'WHL-312',
+      status: 'Open',
+      createdAt: d(-1),
+    },
+    {
+      id: 'inq-3',
+      customerName: 'Priya Nair',
+      customerEmail: 'priya.nair@example.com',
+      channel: 'WhatsApp',
+      subject: 'Ethiopia Yirgacheffe fresh roast batch',
+      message:
+        'Are the 340g Ethiopia Yirgacheffe Whole Bean bags in stock today? Want to pick up 6 bags for our studio.',
+      productId: 'prod-1',
+      status: 'Open',
+      createdAt: d(-1),
+    },
+    {
+      id: 'inq-4',
+      customerName: 'Lucas Meyer',
+      customerEmail: 'lucas.m@example.com',
+      channel: 'Email',
+      subject: 'Gooseneck kettle induction compatibility',
+      message:
+        'Quick question before ordering the Matte Gooseneck Pour-Over Kettle — is it in stock and safe on induction cooktops?',
+      productId: 'prod-2',
+      orderRef: 'ORD-5884',
+      status: 'Replied',
+      createdAt: d(-2),
+      sentReply:
+        'Hi Lucas, yes! We currently have 38 Matte Gooseneck Pour-Over Kettles in stock at $78.00 each, and the stainless steel base works on gas, electric, and induction ranges. — Northwind Support Team',
+      repliedAt: d(-2),
+    },
+  ];
+}
+

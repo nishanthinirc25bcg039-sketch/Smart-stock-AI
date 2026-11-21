@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
-import { Bot, CheckCircle2, Send, ShieldCheck, User, X } from 'lucide-react';
+import { AlertCircle, Bot, CheckCircle2, Send, ShieldCheck, User, X } from 'lucide-react';
 import {
   ChatMessage,
   ChatProposedAction,
@@ -8,7 +8,7 @@ import {
   StockTransaction,
   Supplier,
 } from '../types/inventory';
-import { answerInventoryQuestion } from '../utils/aiEngine';
+import { buildInventoryContextPayload } from '../utils/customerResponseEngine';
 import { formatCurrency } from '../utils/inventoryEngine';
 
 interface InventoryChatbotProps {
@@ -42,7 +42,7 @@ export function InventoryChatbot({
       id: 'welcome',
       role: 'assistant',
       content:
-        'Hi! I can answer questions about your displayed sample inventory — valuations, low-stock items, selling speed, and supplier status. I never modify stock or create orders unless you explicitly confirm.',
+        'Hi! I am connected to the Gemini API on the server to answer questions about your live catalog, inventory value, reorders, and supplier status. I never modify stock or create orders unless you explicitly confirm.',
       timestamp: 'Now',
       isGuidanceOnly: true,
     },
@@ -59,7 +59,7 @@ export function InventoryChatbot({
 
   if (!open) return null;
 
-  const askQuestion = (questionText: string) => {
+  const askQuestion = async (questionText: string) => {
     const trimmed = questionText.trim();
     if (!trimmed || isTyping) return;
 
@@ -70,34 +70,94 @@ export function InventoryChatbot({
       timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
     };
 
-    setMessages((prev) => [...prev, userMsg]);
+    const nextMessages = [...messages, userMsg];
+    setMessages(nextMessages);
     setInput('');
     setIsTyping(true);
 
-    setTimeout(() => {
-      const reply = answerInventoryQuestion(
-        trimmed,
+    try {
+      const inventoryContext = buildInventoryContextPayload(
         products,
-        transactions,
         suppliers,
+        transactions,
         purchaseOrders
       );
+
+      const res = await fetch('/api/gemini/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: trimmed,
+          history: nextMessages.map((m) => ({ role: m.role, content: m.content })),
+          inventoryContext,
+        }),
+      });
+
+      const data = (await res.json()) as {
+        reply?: string;
+        proposedReorderProductId?: string;
+        proposedReorderQty?: number;
+        error?: string;
+      };
+
+      if (!res.ok || !data.reply) {
+        const errMsg: ChatMessage = {
+          id: `err-${Date.now()}`,
+          role: 'assistant',
+          content:
+            data.error ||
+            'Gemini API request failed. Verify GEMINI_API_KEY in Settings > Secrets.',
+          timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+          isError: true,
+        };
+        setMessages((prev) => [...prev, errMsg]);
+        return;
+      }
+
+      let proposedAction: ChatProposedAction | undefined;
+      if (data.proposedReorderProductId && data.proposedReorderQty && data.proposedReorderQty > 0) {
+        const product = products.find((p) => p.id === data.proposedReorderProductId);
+        if (product) {
+          const supplier = suppliers.find((s) => s.id === product.supplierId);
+          proposedAction = {
+            kind: 'create_po',
+            label: `Create PO for ${data.proposedReorderQty}× ${product.name}`,
+            productId: product.id,
+            productName: product.name,
+            supplierId: product.supplierId,
+            supplierName: supplier?.companyName ?? 'Primary Supplier',
+            quantity: data.proposedReorderQty,
+            estimatedCost: Number((data.proposedReorderQty * product.unitCost).toFixed(2)),
+          };
+        }
+      }
+
       const botMsg: ChatMessage = {
         id: `bot-${Date.now()}`,
         role: 'assistant',
-        content: reply.text,
+        content: data.reply,
         timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
         isGuidanceOnly: true,
-        proposedAction: reply.proposedAction,
+        proposedAction,
       };
       setMessages((prev) => [...prev, botMsg]);
+    } catch {
+      const errMsg: ChatMessage = {
+        id: `err-${Date.now()}`,
+        role: 'assistant',
+        content: 'Network error reaching the Gemini chat server endpoint.',
+        timestamp: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' }),
+        isError: true,
+      };
+      setMessages((prev) => [...prev, errMsg]);
+    } finally {
       setIsTyping(false);
-    }, 320);
+    }
   };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
-    askQuestion(input);
+    void askQuestion(input);
   };
 
   const handleConfirmAction = (messageId: string, action: ChatProposedAction) => {
@@ -133,7 +193,7 @@ export function InventoryChatbot({
                 Inventory Assistant
               </h2>
               <p className="text-xs text-slate-500">
-                Sample-data AI guidance · Read-only until confirmed
+                Gemini AI · Read-only until confirmed
               </p>
             </div>
           </div>
@@ -155,8 +215,9 @@ export function InventoryChatbot({
               <button
                 key={q}
                 type="button"
-                onClick={() => askQuestion(q)}
-                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-orange-400 hover:text-orange-700 rounded-lg transition-colors text-left"
+                disabled={isTyping}
+                onClick={() => void askQuestion(q)}
+                className="px-2.5 py-1 text-xs font-medium text-slate-700 bg-white border border-slate-200 hover:border-orange-400 hover:text-orange-700 disabled:opacity-50 rounded-lg transition-colors text-left"
               >
                 {q}
               </button>
@@ -174,8 +235,16 @@ export function InventoryChatbot({
                 className={`flex gap-2.5 ${isUser ? 'justify-end' : 'justify-start'}`}
               >
                 {!isUser && (
-                  <div className="w-7 h-7 rounded-lg bg-slate-100 text-slate-600 flex items-center justify-center shrink-0 mt-0.5">
-                    <Bot className="w-4 h-4" aria-hidden="true" />
+                  <div
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
+                      msg.isError ? 'bg-red-50 text-red-600' : 'bg-slate-100 text-slate-600'
+                    }`}
+                  >
+                    {msg.isError ? (
+                      <AlertCircle className="w-4 h-4" aria-hidden="true" />
+                    ) : (
+                      <Bot className="w-4 h-4" aria-hidden="true" />
+                    )}
                   </div>
                 )}
 
@@ -184,16 +253,18 @@ export function InventoryChatbot({
                     className={`rounded-xl px-3.5 py-2.5 text-sm leading-relaxed whitespace-pre-line ${
                       isUser
                         ? 'bg-slate-900 text-white'
+                        : msg.isError
+                        ? 'bg-red-50 border border-red-200 text-red-800'
                         : 'bg-slate-50 border border-slate-200 text-slate-800'
                     }`}
                   >
                     {msg.content}
                   </div>
 
-                  {!isUser && msg.isGuidanceOnly && (
+                  {!isUser && msg.isGuidanceOnly && !msg.isError && (
                     <p className="text-[11px] text-slate-400 flex items-center gap-1">
                       <ShieldCheck className="w-3 h-3" aria-hidden="true" />
-                      <span>AI guidance based on displayed sample data · {msg.timestamp}</span>
+                      <span>Gemini AI guidance over displayed data · {msg.timestamp}</span>
                     </p>
                   )}
 
@@ -240,7 +311,7 @@ export function InventoryChatbot({
                 <Bot className="w-4 h-4 text-slate-500" aria-hidden="true" />
               </div>
               <span className="px-3 py-2 bg-slate-50 border border-slate-200 rounded-xl">
-                Analyzing current sample inventory...
+                Asking Gemini about your inventory...
               </span>
             </div>
           )}
